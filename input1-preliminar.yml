@@ -1,0 +1,42 @@
+cash: 25
+prices:
+  iron: 80
+  grain: 10
+  milk: 20
+  cloth: 40
+  wood: 20
+agents:
+  - count: 5
+    type: A
+    sells:
+      grain: 4
+    buys:
+      wood: 1
+      milk: 1
+  - count: 4
+    type: B
+    sells:
+      cloth: 1
+      milk: 2
+    buys:
+      grain: 2
+      wood: 1
+      iron: 1
+  - count: 2
+    type: C
+    enters: 2
+    sells:
+      cloth: 1
+      wood: 1
+    buys:
+      milk: 1
+      grain: 1
+      iron: 1
+  - enters: 4
+    type: D
+    sells:
+      iron: 1
+    buys:
+      grain: 2
+      milk: 2
+      wood: 2

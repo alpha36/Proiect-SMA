@@ -1,0 +1,30 @@
+cash: 20
+prices:
+  iron: 40
+  grain: 5
+  milk: 10
+  cloth: 20
+agents:
+  - type: A
+    sells:
+      iron: 1
+    buys:
+      cloth: 2
+  - type: B
+    sells:
+      cloth: 1
+      milk: 2
+    buys:
+      grain: 8
+  - type: C
+    sells:
+      cloth: 1
+      grain: 4
+    buys:
+      milk: 4
+  - type: D
+    sells:
+      grain: 4
+      milk: 2
+    buys:
+      iron: 1
