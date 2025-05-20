@@ -14,7 +14,6 @@ class Agent:
         self.buys = dict(buys)
         self.inventory = {prod: 0 for prod in buys.keys()}
         self.known = set()
-        # busy_until: earliest time step when agent is free
         self.busy_until = 0
 
     def is_free(self, current_time):
@@ -94,14 +93,13 @@ class Simulation:
         step = 0
         while True if total is None else step < total:
             print(f"\n-- Step {step}, time={self.time} --")
-            # add new agents
+
             while self.pending and self.pending[0]['enters'] == step:
                 spec = self.pending.pop(0)
                 aid = f"{spec['type']}{len(self.agents)+1}"
                 ag = Agent(aid, spec['type'], self.cash, spec['sells'], spec['buys'])
                 self.agents[aid] = ag
                 print(f"Agent {aid} entered at step {step}.")
-            # gather free agents
             free = [aid for aid, ag in self.agents.items() if ag.is_free(self.time)]
             random.shuffle(free)
             used = set()
@@ -109,11 +107,11 @@ class Simulation:
                 if aid in used:
                     continue
                 ag = self.agents[aid]
-                # choose candidate among other free agents
+                # alegem candidatii
                 candidates = [oid for oid in free if oid not in used and oid != aid]
                 if not candidates:
                     continue
-                # choose known or unknown
+
                 if random.random() < 0.5 and ag.known:
                     known_free = [oid for oid in candidates if oid in ag.known]
                     part_list = known_free or candidates
@@ -121,9 +119,8 @@ class Simulation:
                     part_list = [oid for oid in candidates if oid not in ag.known] or candidates
                 pid = random.choice(part_list)
                 partner = self.agents[pid]
-                # initiate interaction
                 ag.known.add(pid); partner.known.add(aid)
-                # during interaction both busy for T
+                # pauze pentru T
                 ag.busy_until = partner.busy_until = self.time + self.T
                 used.update({aid, pid})
                 prod, price = ag.can_trade(partner, self.prices)
@@ -135,12 +132,12 @@ class Simulation:
                         partner.execute_trade(ag, prod2, price2)
                     else:
                         print(f"{aid} and {pid} interacted but no trade.")
-            # advance time
+            #next time
             self.time += 1
             self._print_summary(f"step {step}")
             step += 1
             t.sleep(1)
-        # final summary for finite run
+
         if total:
             self._print_summary("end")
 
