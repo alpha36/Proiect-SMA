@@ -64,8 +64,8 @@ class Agent:
             # oportunist: pregătește revânzarea
             self.sells[prod] = self.sells.get(prod, 0) + 1
             self.initial_sells[prod] = self.initial_sells.get(prod, 0) + 1
-            # preț de revânzare la prețul de achiziție
-            self.sell_prices[prod] = price
+            # setează prețul de revânzare la prețul de referință pentru profit
+            self.sell_prices[prod] = self.reference_prices.get(prod, price)
 
     def sell(self, buyer, prod, price):
         # vânzare efectivă
