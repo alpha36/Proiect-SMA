@@ -54,17 +54,14 @@ class Agent:
         print(f"{seller.id} to {self.id}: buys 1 {prod} at {price}")
         # actualizează dorințe sau ofertă
         if prod in self.buys and self.buys[prod] > 0:
-            # cumpărare dorită: scade din buys și initial_buys
             self.buys[prod] -= 1
             self.initial_buys[prod] -= 1
             if self.buys[prod] == 0:
                 del self.buys[prod]
                 del self.initial_buys[prod]
         else:
-            # oportunist: pregătește revânzarea
             self.sells[prod] = self.sells.get(prod, 0) + 1
             self.initial_sells[prod] = self.initial_sells.get(prod, 0) + 1
-            # setează prețul de revânzare la prețul de referință pentru profit
             self.sell_prices[prod] = self.reference_prices.get(prod, price)
 
     def sell(self, buyer, prod, price):
@@ -74,7 +71,6 @@ class Agent:
         self.cash += price
         buyer.cash -= price
         buyer.inventory[prod] = buyer.inventory.get(prod, 0) + 1
-        # actualizează dorințele cumpărătorului
         if prod in buyer.buys and buyer.buys[prod] > 0:
             buyer.buys[prod] -= 1
             buyer.initial_buys[prod] -= 1
@@ -121,14 +117,10 @@ class Simulation:
         print(f"\n-- State after {label} --")
         for aid in sorted(self.agents):
             ag = self.agents[aid]
-            # lista de vânzări și cumpărări rămase
             sells_list = [f"{p}:{q}" for p,q in ag.sells.items()]
             buys_list  = [f"{p}:{q}" for p,q in ag.buys.items()]
-            # inventar consum (produse dorite)
             consume_list = [f"{p}:{ag.inventory.get(p,0)}" for p in ag.initial_buys]
-            # inventar revânzare (produse oportuniste)
             resell_list = [f"{p}:{ag.inventory.get(p,0)}" for p in ag.inventory if p not in ag.initial_buys]
-            # istoric vânzări
             sold_list = [f"{p}:{ag.initial_sells.get(p,0)-ag.sells.get(p,0)}" for p in ag.initial_sells]
 
             print(f"Agent {aid} - Cash: {ag.cash}")
@@ -143,38 +135,61 @@ class Simulation:
         print(f"Running for {steps} steps (T={self.T})")
         for step in range(steps):
             print(f"\n-- Step {step}, time={self.time} --")
-            while self.pending and self.pending[0]['enters']==step:
+            while self.pending and self.pending[0]['enters'] == step:
                 spec = self.pending.pop(0)
                 aid = f"{spec['type']}{len(self.agents)+1}"
                 ag = Agent(aid, spec['type'], self.cash, spec['sells'], spec['buys'], self.prices)
                 self.agents[aid] = ag
                 print(f"Agent {aid} entered at step {step}.")
 
-            free = [aid for aid,ag in self.agents.items() if ag.is_free(self.time)]
+            free = [aid for aid, ag in self.agents.items() if ag.is_free(self.time)]
             random.shuffle(free)
             used = set()
             for aid in free:
                 if aid in used: continue
                 ag = self.agents[aid]
-                candidates = [oid for oid in free if oid not in used and oid!=aid]
+                candidates = [oid for oid in free if oid not in used and oid != aid]
                 if not candidates: continue
                 pid = random.choice(candidates)
                 partner = self.agents[pid]
                 ag.busy_until = partner.busy_until = self.time + self.T
-                used.update({aid,pid})
+                used.update({aid, pid})
 
-                traded=False
-                prod,price=ag.can_trade(partner)
+                # Troc: schimb direct de produse dorite
+                my_offer = [p for p in ag.sells if ag.sells[p] > 0 and partner.buys.get(p,0) > 0]
+                their_offer = [p for p in partner.sells if partner.sells[p] > 0 and ag.buys.get(p,0) > 0]
+                if my_offer and their_offer:
+                    p_self = my_offer[0]
+                    p_part = their_offer[0]
+                    # execut schimbul fără cash
+                    ag.inventory[p_self] -= 1
+                    ag.sells[p_self] -= 1
+                    partner.inventory[p_self] = partner.inventory.get(p_self,0) + 1
+                    partner.buys[p_self] -= 1
+
+                    partner.inventory[p_part] -= 1
+                    partner.sells[p_part] -= 1
+                    ag.inventory[p_part] = ag.inventory.get(p_part,0) + 1
+                    ag.buys[p_part] -= 1
+
+                    print(f"Troc: {ag.id} gives 1 {p_self} to {partner.id} and receives 1 {p_part}")
+                    continue
+
+                traded = False
+                prod, price = ag.can_trade(partner)
                 if prod:
-                    ag.sell(partner,prod,price); traded=True
+                    ag.sell(partner, prod, price)
+                    traded = True
                 else:
-                    prod2,price2=partner.can_trade(ag)
+                    prod2, price2 = partner.can_trade(ag)
                     if prod2:
-                        partner.sell(ag,prod2,price2); traded=True
+                        partner.sell(ag, prod2, price2)
+                        traded = True
                     else:
-                        opp,pr=ag.can_opportunistic_buy(partner)
+                        opp, pr = ag.can_opportunistic_buy(partner)
                         if opp:
-                            ag.buy(partner,opp,pr); traded=True
+                            ag.buy(partner, opp, pr)
+                            traded = True
                         else:
                             print(f"{aid} and {pid} interacted but no trade.")
 
@@ -187,10 +202,10 @@ class Simulation:
 
         self._print_summary("end")
 
-if __name__=='__main__':
-    parser=argparse.ArgumentParser()
-    parser.add_argument('config_file',nargs='?',default='input.yaml')
-    parser.add_argument('-s','--steps',type=int,default=None)
-    args=parser.parse_args()
-    sim=Simulation(args.config_file)
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('config_file', nargs='?', default='input.yaml')
+    parser.add_argument('-s', '--steps', type=int, default=None)
+    args = parser.parse_args()
+    sim = Simulation(args.config_file)
     sim.run(finite_steps=args.steps)
