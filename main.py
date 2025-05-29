@@ -8,19 +8,16 @@ class Agent:
         self.id = agent_id
         self.type = agent_type
         self.cash = cash
-        # stocuri
         self.initial_sells = dict(sells)
         self.initial_buys = dict(buys)
         self.sells = dict(sells)
         self.buys = dict(buys)
-        self.inventory = dict(self.initial_sells)
+        self.inventory = {prod: qty for prod, qty in self.initial_sells.items()}
         for prod in self.initial_buys:
             self.inventory.setdefault(prod, 0)
-        # preturi
         self.reference_prices = reference_prices
-        self.sell_prices = dict(reference_prices)
-        self.buy_prices = dict(reference_prices)
-        # istoric intalniri
+        self.sell_prices = {prod: reference_prices.get(prod, 0) for prod in self.initial_sells}
+        self.buy_prices  = {prod: reference_prices.get(prod, 0) for prod in self.initial_buys}
         self.known = {}
         self.busy_until = 0
 
@@ -31,15 +28,7 @@ class Agent:
         for prod, qty in self.sells.items():
             if qty > 0 and other.buys.get(prod, 0) > 0:
                 price = self.sell_prices.get(prod, 0)
-                if other.buy_prices.get(prod, 0) >= price and other.cash >= price:
-                    return prod, price
-        return None, None
-
-    def can_opportunistic_buy(self, other):
-        for prod, qty in other.sells.items():
-            if qty > 0 and prod not in self.initial_buys:
-                price = other.sell_prices.get(prod, 0)
-                if price < self.reference_prices.get(prod, price) and self.cash >= price:
+                if other.cash >= price and other.buy_prices.get(prod, 0) >= price:
                     return prod, price
         return None, None
 
@@ -49,14 +38,14 @@ class Agent:
         self.cash -= price
         seller.cash += price
         self.inventory[prod] = self.inventory.get(prod, 0) + 1
-        print(f"{seller.id} to {self.id}: buys 1 {prod} at {price}")
-        # actualizare dorinte
-        if prod in self.buys and self.buys[prod] > 0:
+        print(f"{seller.id} -> {self.id}: buys 1 {prod} at {price}")
+        if prod in self.buys:
             self.buys[prod] -= 1
             self.initial_buys[prod] -= 1
             if self.buys[prod] == 0:
                 del self.buys[prod]
                 del self.initial_buys[prod]
+                del self.buy_prices[prod]
         else:
             self.sells[prod] = self.sells.get(prod, 0) + 1
             self.initial_sells[prod] = self.initial_sells.get(prod, 0) + 1
@@ -68,13 +57,14 @@ class Agent:
         self.cash += price
         buyer.cash -= price
         buyer.inventory[prod] = buyer.inventory.get(prod, 0) + 1
-        if prod in buyer.buys and buyer.buys[prod] > 0:
+        print(f"{self.id} -> {buyer.id}: sells 1 {prod} at {price}")
+        if prod in buyer.buys:
             buyer.buys[prod] -= 1
             buyer.initial_buys[prod] -= 1
             if buyer.buys[prod] == 0:
                 del buyer.buys[prod]
                 del buyer.initial_buys[prod]
-        print(f"{self.id} to {buyer.id}: sells 1 {prod} at {price}")
+                del buyer.buy_prices[prod]
 
     def adjust_prices(self):
         for prod, qty in self.sells.items():
@@ -99,12 +89,11 @@ class Simulation:
 
     def _prepare_agents(self):
         for spec in self.schedule:
-            count = spec.get('count', 1)
-            enters_step = spec.get('enters', 0) * self.T
-            for _ in range(count):
+            enters = spec.get('enters', 0) * self.T
+            for _ in range(spec.get('count', 1)):
                 self.pending.append({
                     'type': spec['type'],
-                    'enters': enters_step,
+                    'enters': enters,
                     'sells': spec.get('sells', {}),
                     'buys': spec.get('buys', {})
                 })
@@ -114,23 +103,44 @@ class Simulation:
         print(f"\n-- State after {label} --")
         for aid in sorted(self.agents):
             ag = self.agents[aid]
-            sells_list = [f"{p}:{q}" for p,q in ag.sells.items()]
-            buys_list  = [f"{p}:{q}" for p,q in ag.buys.items()]
-            consume_list = [f"{p}:{ag.inventory.get(p,0)}" for p in ag.initial_buys]
-            resell_list = [f"{p}:{ag.inventory.get(p,0)}" for p in ag.inventory if p not in ag.initial_buys]
-            sold_list = [f"{p}:{ag.initial_sells.get(p,0)-ag.sells.get(p,0)}" for p in ag.initial_sells]
-
             print(f"Agent {aid} - Cash: {ag.cash}")
-            print("  Sells:",    ", ".join(sells_list)    or "none")
-            print("  Buys:",     ", ".join(buys_list)     or "none")
-            print("  Inventory (consume):", ", ".join(consume_list) or "none")
-            print("  Inventory (resell):",  ", ".join(resell_list)  or "none")
-            print("  Sold:",     ", ".join(sold_list)      or "none")
+            print("  Sells:",    ", ".join(f"{p}:{q}" for p,q in ag.sells.items()) or "none")
+            print("  Buys:",     ", ".join(f"{p}:{q}" for p,q in ag.buys.items()) or "none")
+            print("  Inv-consume:",", ".join(f"{p}:{ag.inventory.get(p,0)}" for p in ag.initial_buys) or "none")
+            print("  Inv-resell:", ", ".join(f"{p}:{ag.inventory.get(p,0)}" for p in ag.inventory if p not in ag.initial_buys) or "none")
+            print("  Sold:",      ", ".join(f"{p}:{ag.initial_sells.get(p,0)-ag.sells.get(p,0)}" for p in ag.initial_sells) or "none")
 
     def run(self, finite_steps=None):
-        steps = finite_steps or 0
-        print(f"Running for {steps} steps (T={self.T})")
-        for step in range(steps):
+        def select_best_partner(agent, free_list):
+            cands = [oid for oid in free_list if oid != agent.id]
+            known = [oid for oid in cands if oid in agent.known]
+            desired = [oid for oid in known if any(agent.known[oid]['sells'].get(p,0) > 0 for p in agent.buys)]
+            if desired:
+                return random.choice(desired)
+            return random.choice(cands) if cands else None
+
+        def select_best_purchase(agent, partner):
+            desired = [(prod, partner.sell_prices[prod])
+                       for prod,qty in partner.sells.items() if qty>0 and prod in agent.buys and agent.cash>=partner.sell_prices[prod]]
+            if desired:
+                return min(desired, key=lambda x: x[1])
+            opp = []
+            for prod,qty in partner.sells.items():
+                price = partner.sell_prices.get(prod,0)
+                if qty>0 and agent.cash>=price:
+                    ref = agent.reference_prices.get(prod, price)
+                    margin = ref - price
+                    if margin>0:
+                        score = margin - price*0.1
+                        opp.append((prod, price, score))
+            if opp:
+                p,pr,_ = max(opp, key=lambda x: x[2])
+                return p, pr
+            return None, None
+
+        total = finite_steps or 0
+        print(f"Running for {total} steps (T={self.T})")
+        for step in range(total):
             print(f"\n-- Step {step}, time={self.time} --")
             while self.pending and self.pending[0]['enters'] == step:
                 spec = self.pending.pop(0)
@@ -139,64 +149,54 @@ class Simulation:
                 self.agents[aid] = ag
                 print(f"Agent {aid} entered at step {step}.")
 
-            free = [aid for aid, ag in self.agents.items() if ag.is_free(self.time)]
+            free = [aid for aid,ag in self.agents.items() if ag.is_free(self.time)]
             random.shuffle(free)
             used = set()
             for aid in free:
                 if aid in used: continue
                 ag = self.agents[aid]
-                candidates = [oid for oid in free if oid not in used and oid != aid]
-                if not candidates: continue
-                pid = random.choice(candidates)
+                available = [oid for oid in free if oid not in used and oid != aid]
+                if not available: continue
+                pid = select_best_partner(ag, available)
+                if pid is None: continue
                 partner = self.agents[pid]
                 ag.busy_until = partner.busy_until = self.time + self.T
                 used.update({aid, pid})
 
-                # troc
-                my_offer = [p for p in ag.sells if ag.sells[p] > 0 and partner.buys.get(p,0) > 0]
-                their_offer = [p for p in partner.sells if partner.sells[p] > 0 and ag.buys.get(p,0) > 0]
-                if my_offer and their_offer:
-                    p_self = my_offer[0]
-                    p_part = their_offer[0]
-                    #schimb cash
-                    ag.inventory[p_self] -= 1
-                    ag.sells[p_self] -= 1
-                    partner.inventory[p_self] = partner.inventory.get(p_self,0) + 1
-                    partner.buys[p_self] -= 1
-
-                    partner.inventory[p_part] -= 1
-                    partner.sells[p_part] -= 1
-                    ag.inventory[p_part] = ag.inventory.get(p_part,0) + 1
-                    ag.buys[p_part] -= 1
-
+                offer = [p for p in ag.sells if ag.sells[p]>0 and partner.buys.get(p,0)>0]
+                want  = [p for p in partner.sells if partner.sells[p]>0 and ag.buys.get(p,0)>0]
+                if offer and want:
+                    p_self, p_part = offer[0], want[0]
+                    ag.inventory[p_self]-=1; ag.sells[p_self]-=1
+                    partner.inventory[p_self]+=1; partner.buys[p_self]-=1
+                    partner.inventory[p_part]-=1; partner.sells[p_part]-=1
+                    ag.inventory[p_part]+=1; ag.buys[p_part]-=1
                     print(f"Troc: {ag.id} gives 1 {p_self} to {partner.id} and receives 1 {p_part}")
+                    ag.known[pid]   = {'sells': dict(partner.sells), 'buys': dict(partner.buys)}
+                    partner.known[aid] = {'sells': dict(ag.sells),      'buys': dict(ag.buys)}
                     continue
 
-                traded = False
                 prod, price = ag.can_trade(partner)
                 if prod:
                     ag.sell(partner, prod, price)
-                    traded = True
                 else:
                     prod2, price2 = partner.can_trade(ag)
                     if prod2:
                         partner.sell(ag, prod2, price2)
-                        traded = True
                     else:
-                        opp, pr = ag.can_opportunistic_buy(partner)
-                        if opp:
-                            ag.buy(partner, opp, pr)
-                            traded = True
+                        po, pr = select_best_purchase(ag, partner)
+                        if po:
+                            ag.buy(partner, po, pr)
                         else:
                             print(f"{aid} and {pid} interacted but no trade.")
 
-                if not traded:
-                    ag.adjust_prices(); partner.adjust_prices()
+                ag.adjust_prices(); partner.adjust_prices()
+                ag.known[pid]   = {'sells': dict(partner.sells), 'buys': dict(partner.buys)}
+                partner.known[aid] = {'sells': dict(ag.sells),      'buys': dict(ag.buys)}
 
             self.time += 1
             self._print_summary(f"step {step}")
             t.sleep(1)
-
         self._print_summary("end")
 
 if __name__ == '__main__':
