@@ -8,20 +8,19 @@ class Agent:
         self.id = agent_id
         self.type = agent_type
         self.cash = cash
-        # stocuri inițiale
+        # stocuri
         self.initial_sells = dict(sells)
         self.initial_buys = dict(buys)
         self.sells = dict(sells)
         self.buys = dict(buys)
-        # inventar fizic pornește din stocul inițial de vândut și cererile de cumpărare
         self.inventory = dict(self.initial_sells)
         for prod in self.initial_buys:
             self.inventory.setdefault(prod, 0)
-        # prețuri de referință și negociere
+        # preturi
         self.reference_prices = reference_prices
         self.sell_prices = dict(reference_prices)
         self.buy_prices = dict(reference_prices)
-        # istoricul întâlnirilor
+        # istoric intalniri
         self.known = {}
         self.busy_until = 0
 
@@ -45,14 +44,13 @@ class Agent:
         return None, None
 
     def buy(self, seller, prod, price):
-        # cumpărare obișnuită sau oportunistă
         seller.inventory[prod] -= 1
         seller.sells[prod] -= 1
         self.cash -= price
         seller.cash += price
         self.inventory[prod] = self.inventory.get(prod, 0) + 1
         print(f"{seller.id} to {self.id}: buys 1 {prod} at {price}")
-        # actualizează dorințe sau ofertă
+        # actualizare dorinte
         if prod in self.buys and self.buys[prod] > 0:
             self.buys[prod] -= 1
             self.initial_buys[prod] -= 1
@@ -65,7 +63,6 @@ class Agent:
             self.sell_prices[prod] = self.reference_prices.get(prod, price)
 
     def sell(self, buyer, prod, price):
-        # vânzare efectivă
         self.inventory[prod] -= 1
         self.sells[prod] -= 1
         self.cash += price
@@ -155,13 +152,13 @@ class Simulation:
                 ag.busy_until = partner.busy_until = self.time + self.T
                 used.update({aid, pid})
 
-                # Troc: schimb direct de produse dorite
+                # troc
                 my_offer = [p for p in ag.sells if ag.sells[p] > 0 and partner.buys.get(p,0) > 0]
                 their_offer = [p for p in partner.sells if partner.sells[p] > 0 and ag.buys.get(p,0) > 0]
                 if my_offer and their_offer:
                     p_self = my_offer[0]
                     p_part = their_offer[0]
-                    # execut schimbul fără cash
+                    #schimb cash
                     ag.inventory[p_self] -= 1
                     ag.sells[p_self] -= 1
                     partner.inventory[p_self] = partner.inventory.get(p_self,0) + 1
